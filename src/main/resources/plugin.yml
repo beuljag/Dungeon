@@ -1,0 +1,21 @@
+name: Dungeon
+version: 1.0.0
+main: kr.server.dungeon.DungeonPlugin
+api-version: '1.21'
+description: 입장할 때마다 방을 조립해 만드는 층별 보스 던전
+depend: [WorldEdit]
+softdepend: [MythicMobs]
+commands:
+  dungeon:
+    description: 던전 입장, 파티, 관리
+    aliases: [던전]
+permissions:
+  dungeon.enter:
+    description: 직접 던전 입장 명령어 사용
+    default: true
+  dungeon.party:
+    description: 파티 명령어 사용
+    default: true
+  dungeon.admin:
+    description: 던전과 방 관리, 던전 안 제한 무시
+    default: op

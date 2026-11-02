@@ -1,0 +1,24 @@
+# 던전 전용 공허 월드. 서버를 켤 때마다 이 월드 폴더를 지우고 새로 만든다. 기존 월드 이름을 쓰면 안 된다.
+world-name: dungeon_instances
+# 접속이 끊긴 뒤 이 시간 안에 돌아오지 않으면 사망 처리한다.
+reconnect-seconds: 300
+# 맵이 준비된 뒤 입장까지 기다리는 시간. 파티원이 이 사이에 파티를 나가면 입장하지 않는다.
+entry-delay-seconds: 5
+# 다음 층 발판을 밟은 뒤 내려갈 때까지 기다리는 시간. 이 사이에 출구로 나갈 수 있다.
+descend-delay-seconds: 10
+max-party-size: 4
+# false면 플레이어가 직접 /던전 입장을 쓸 수 없고, NPC나 콘솔이 대상을 지정해 실행해야 한다.
+allow-player-enter-command: true
+# 연결되지 않은 문을 막는 블록
+door-seal-block: STONE_BRICKS
+# 보스를 잡으면 발판 아래에 깔리는 블록
+next-gate-block: CRYING_OBSIDIAN
+exit-gate-block: GOLD_BLOCK
+# 던전 안에서 쓸 수 있는 명령어 (dungeon.admin 권한은 제한 없음)
+allowed-commands:
+  - dungeon
+  - 던전
+  - msg
+  - tell
+  - w
+  - r
