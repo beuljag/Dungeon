@@ -236,13 +236,12 @@ final class EventManager {
         setUsedDoors(room, material("wave.door-block", Material.IRON_BARS));
         room.wave = 1;
         manager.broadcast(instance, "&c문이 닫혔습니다! 몹을 모두 쓰러뜨리세요.");
-        spawnWave(floor, room);
+        spawnWave(instance, floor, room);
     }
 
-    private void spawnWave(Floor floor, PlacedRoom room) {
+    private void spawnWave(DungeonInstance instance, Floor floor, PlacedRoom room) {
         for (Point point : room.template.marker(MarkerType.SPAWN)) {
-            Entity mob = manager.spawnFloorMob(floor, room.toWorld(point));
-            if (mob != null) {
+            for (Entity mob : manager.spawnFloorMobs(instance, floor, room.toWorld(point))) {
                 room.waveMobs.add(mob.getUniqueId());
             }
         }
@@ -281,7 +280,7 @@ final class EventManager {
         if (room.wave < total) {
             room.wave++;
             manager.broadcast(instance, "&c웨이브 " + room.wave + "/" + total);
-            spawnWave(floor, room);
+            spawnWave(instance, floor, room);
             return;
         }
         room.wave = 0;

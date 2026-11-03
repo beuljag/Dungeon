@@ -41,6 +41,8 @@ final class DungeonData {
     static final class DungeonDef {
         final String name;
         String theme = DEFAULT_THEME;
+        /** 입장할 때 한 사람당 소모하는 아이템. 수량까지 그대로 쓴다. null이면 입장권이 필요 없다. */
+        ItemStack ticket;
         final List<FloorDef> floors = new ArrayList<>();
 
         DungeonDef(String name) {
@@ -69,6 +71,7 @@ final class DungeonData {
             ConfigurationSection section = root.getConfigurationSection(name);
             DungeonDef def = new DungeonDef(name);
             def.theme = section.getString("theme", DEFAULT_THEME);
+            def.ticket = section.getItemStack("ticket");
             ConfigurationSection floors = section.getConfigurationSection("floors");
             if (floors != null) {
                 Map<Integer, FloorDef> ordered = new TreeMap<>();
@@ -124,6 +127,7 @@ final class DungeonData {
         for (DungeonDef def : dungeons.values()) {
             String path = "dungeons." + def.name;
             yaml.set(path + ".theme", def.theme);
+            yaml.set(path + ".ticket", def.ticket);
             for (int i = 0; i < def.floors.size(); i++) {
                 FloorDef floor = def.floors.get(i);
                 String floorPath = path + ".floors." + (i + 1);

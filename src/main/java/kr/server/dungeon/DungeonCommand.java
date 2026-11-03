@@ -83,6 +83,7 @@ final class DungeonCommand implements TabExecutor {
                     "몹 <던전> <층> 추가 <몹> [가중치] | 몹 <던전> <층> 제거 <몹>",
                     "보상 <던전> <층> 추가 <확률%> &7- 손에 든 아이템",
                     "보상 <던전> <층> 비우기",
+                    "입장권 <던전> 설정 &7- 손에 든 아이템과 수량, &e해제",
                     "이벤트방 <던전> <층> <수> | 상점방 <던전> <층> <확률%>",
                     "보물 <던전> <층> 추가 <확률%> | 비우기 &7- 손에 든 아이템",
                     "상점 <던전> <층> 추가 <가격> | 비우기 | 목록 &7- 손에 든 아이템",
@@ -249,6 +250,7 @@ final class DungeonCommand implements TabExecutor {
             case "보스" -> boss(sender, args);
             case "몹" -> mob(sender, args);
             case "보상" -> reward(sender, args);
+            case "입장권" -> ticket(sender, args);
             case "이벤트방" -> eventRooms(sender, args);
             case "상점방" -> shopChance(sender, args);
             case "보물" -> treasure(sender, args);
@@ -340,7 +342,8 @@ final class DungeonCommand implements TabExecutor {
             send(sender, "던전: &e" + String.join(", ", data.dungeons().keySet()));
             return;
         }
-        send(sender, "&e" + def.name + " &f테마 " + def.theme + ", " + def.floors.size() + "층");
+        send(sender, "&e" + def.name + " &f테마 " + def.theme + ", " + def.floors.size() + "층, 입장권 "
+                + (def.ticket != null ? def.ticket.getType() + " x" + def.ticket.getAmount() : "없음"));
         for (int i = 0; i < def.floors.size(); i++) {
             FloorDef floor = def.floors.get(i);
             sender.sendMessage(DungeonPlugin.color("&e" + (i + 1) + "층 &7일반 방 " + floor.rooms + " / 보스 " + floor.boss
@@ -459,6 +462,30 @@ final class DungeonCommand implements TabExecutor {
             send(sender, "보상 추가: &e" + item.getType() + " x" + item.getAmount() + " &7확률 " + chance + "%");
         } else {
             send(sender, "&c사용법: /던전 보상 <던전> <층> 추가 <확률%> | 비우기");
+        }
+    }
+
+    private void ticket(CommandSender sender, String[] args) throws IOException {
+        DungeonDef def = args.length >= 3 ? data.dungeons().get(args[1]) : null;
+        if (def == null) {
+            send(sender, "&c사용법: /던전 입장권 <던전> <설정|해제>");
+            return;
+        }
+        if (args[2].equals("해제")) {
+            def.ticket = null;
+            data.save();
+            send(sender, "입장권을 해제했습니다. 누구나 입장할 수 있습니다.");
+        } else if (args[2].equals("설정") && sender instanceof Player player) {
+            ItemStack item = player.getInventory().getItemInMainHand();
+            if (item.getType() == Material.AIR) {
+                send(sender, "&c입장권으로 쓸 아이템을 손에 드세요. 든 수량만큼 한 사람당 소모합니다.");
+                return;
+            }
+            def.ticket = item.clone();
+            data.save();
+            send(sender, "입장권 설정: &e" + item.getType() + " x" + item.getAmount() + " &7(한 사람당)");
+        } else {
+            send(sender, "&c사용법: /던전 입장권 <던전> <설정|해제> (설정은 게임 안에서)");
         }
     }
 
@@ -613,7 +640,7 @@ final class DungeonCommand implements TabExecutor {
         if (args.length == 1) {
             options.addAll(List.of("입장", "파티", "지갑"));
             if (admin) {
-                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점",
+                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
                         "현황", "배치", "종료", "리로드"));
             }
         } else if (first.equals("파티")) {
@@ -647,8 +674,10 @@ final class DungeonCommand implements TabExecutor {
             }
             return;
         }
-        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
+        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             options.addAll(data.dungeons().keySet());
+        } else if (args.length == 3 && first.equals("입장권")) {
+            options.addAll(List.of("설정", "해제"));
         } else if (args.length == 3 && List.of("방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             DungeonDef def = data.dungeons().get(args[1]);
             for (int i = 1; def != null && i <= def.floors.size(); i++) {

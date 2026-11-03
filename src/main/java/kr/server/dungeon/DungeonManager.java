@@ -190,6 +190,9 @@ final class DungeonManager implements Runnable {
             if (sessions.get(id) != null || pending.contains(id)) {
                 return player.getName() + " 님은 이미 던전에 있거나 입장 중입니다.";
             }
+            if (!hasTicket(player, def)) {
+                return player.getName() + " 님의 입장권이 부족합니다.";
+            }
         }
         if (leader.isDead()) {
             return "죽은 상태로는 입장할 수 없습니다.";
@@ -223,7 +226,10 @@ final class DungeonManager implements Runnable {
 
     private void start(DungeonInstance instance, UUID leaderId) {
         Player leader = Bukkit.getPlayer(leaderId);
-        if (leader == null || leader.isDead()) {
+        if (leader == null || leader.isDead() || !hasTicket(leader, instance.def)) {
+            if (leader != null) {
+                leader.sendMessage(DungeonPlugin.color("&6[던전] &c입장이 취소되었습니다."));
+            }
             clearEntities(instance.floor());
             return;
         }
@@ -233,10 +239,44 @@ final class DungeonManager implements Runnable {
         for (UUID id : team) {
             Player player = Bukkit.getPlayer(id);
             if (player != null && !player.isDead() && sessions.get(id) == null) {
+                // 대기 중에 입장권을 버렸을 수 있으므로 들어가는 순간에 다시 확인하고 소모한다.
+                if (!hasTicket(player, instance.def)) {
+                    player.sendMessage(DungeonPlugin.color("&6[던전] &c입장권이 없어 입장하지 못했습니다."));
+                    continue;
+                }
+                if (instance.def.ticket != null) {
+                    player.getInventory().removeItemAnySlot(instance.def.ticket.clone());
+                }
                 join(instance, player);
             }
         }
         announceFloor(instance);
+    }
+
+    private boolean hasTicket(Player player, DungeonDef def) {
+        if (def.ticket == null) {
+            return true;
+        }
+        int found = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.isSimilar(def.ticket)) {
+                found += item.getAmount();
+            }
+        }
+        return found >= def.ticket.getAmount();
+    }
+
+    // ---- 파티 보정 ----
+
+    /**
+     * [몹] 표지판 하나에서 나올 마리 수. 보정이 1.5배면 1마리 또는 2마리가 절반 확률로 나온다.
+     * 접속이 끊겼어도 복귀 시간 안이면 살아 있는 인원으로 센다.
+     */
+    private int mobCount(DungeonInstance instance) {
+        long extra = instance.aliveCount() - 1;
+        double scale = 1 + Math.max(0, plugin.getConfig().getDouble("party-scaling.mob-count-percent", 50) * extra) / 100;
+        int count = (int) scale;
+        return ThreadLocalRandom.current().nextDouble() < scale - count ? count + 1 : count;
     }
 
     private void join(DungeonInstance instance, Player player) {
@@ -437,7 +477,7 @@ final class DungeonManager implements Runnable {
             }
             room.activated = true;
             for (Point point : room.template.marker(MarkerType.SPAWN)) {
-                spawnFloorMob(floor, room.toWorld(point));
+                spawnFloorMobs(instance, floor, room.toWorld(point));
             }
             events.spawnShopkeeper(floor, room, world);
             if (room.template.type() == RoomType.BOSS) {
@@ -449,8 +489,21 @@ final class DungeonManager implements Runnable {
         }
     }
 
+    /** 표지판 하나에서 파티 인원에 맞는 수의 몹을 소환한다. */
+    List<Entity> spawnFloorMobs(DungeonInstance instance, Floor floor, Point point) {
+        List<Entity> spawned = new ArrayList<>();
+        int count = mobCount(instance);
+        for (int i = 0; i < count; i++) {
+            Entity mob = spawnFloorMob(floor, point);
+            if (mob != null) {
+                spawned.add(mob);
+            }
+        }
+        return spawned;
+    }
+
     /** 층의 몹 목록에서 하나를 골라 소환한다. 목록이 비었거나 실패하면 null이다. */
-    Entity spawnFloorMob(Floor floor, Point point) {
+    private Entity spawnFloorMob(Floor floor, Point point) {
         if (floor.def.mobs.isEmpty()) {
             return null;
         }
