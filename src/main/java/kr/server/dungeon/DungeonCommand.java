@@ -5,18 +5,24 @@ import kr.server.dungeon.DungeonData.FloorDef;
 import kr.server.dungeon.DungeonData.Reward;
 import kr.server.dungeon.DungeonData.ShopItem;
 import kr.server.dungeon.RoomTemplate.RoomType;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.block.Sign;
+import org.bukkit.block.sign.Side;
+import org.bukkit.block.sign.SignSide;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -25,6 +31,7 @@ final class DungeonCommand implements TabExecutor {
     private static final String PREFIX = "&6[던전] &f";
     private static final Pattern VALID_NAME = Pattern.compile("[\\p{L}\\p{N}_-]{1,32}");
     private static final String ADMIN = "dungeon.admin";
+    private static final int SIGN_STACK = 16;
 
     private final DungeonPlugin plugin;
     private final DungeonData data;
@@ -75,7 +82,8 @@ final class DungeonCommand implements TabExecutor {
         if (sender.hasPermission(ADMIN)) {
             lines.addAll(List.of(
                     "입장 <던전> <플레이어> &7- 대상 입장 (NPC, 콘솔용)",
-                    "방 저장 <이름> <시작|일반|보스> [테마] &7- WorldEdit 선택 영역 저장",
+                    "표지판 [종류] [문 크기] &7- 방 표시용 표지판 받기",
+                    "방 저장 <이름> <시작|일반|보스|이벤트|상점> [테마] &7- WorldEdit 선택 영역 저장",
                     "방 삭제 <이름> | 방 목록",
                     "생성 <던전> [테마] | 삭제 <던전> | 정보 <던전>",
                     "층수 <던전> <층수> | 방수 <던전> <층> <일반 방 수>",
@@ -251,6 +259,7 @@ final class DungeonCommand implements TabExecutor {
             case "보스" -> boss(sender, args);
             case "몹" -> mob(sender, args);
             case "보상" -> reward(sender, args);
+            case "표지판" -> signs(sender, args);
             case "층테마" -> floorTheme(sender, args);
             case "입장권" -> ticket(sender, args);
             case "이벤트방" -> eventRooms(sender, args);
@@ -468,6 +477,56 @@ final class DungeonCommand implements TabExecutor {
         }
     }
 
+    /** 방 표시용 표지판을 지급한다. 인자가 없으면 전부, 있으면 그 종류만 준다. 문은 크기를 지정할 수 있다. */
+    private void signs(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            send(sender, "&c게임 안에서만 쓸 수 있습니다.");
+            return;
+        }
+        List<ItemStack> items = new ArrayList<>();
+        if (args.length < 2) {
+            items.add(signItem(RoomLibrary.DOOR_TEXT, ""));
+            for (RoomTemplate.MarkerType type : RoomTemplate.MarkerType.values()) {
+                items.add(signItem(type.text, ""));
+            }
+        } else {
+            String text = "[" + args[1] + "]";
+            if (!text.equals(RoomLibrary.DOOR_TEXT) && RoomTemplate.MarkerType.parse(text) == null) {
+                send(sender, "&c사용법: /던전 표지판 [종류] (문은 /던전 표지판 문 5x4 처럼 크기 지정 가능)");
+                return;
+            }
+            String size = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "";
+            if (!size.isEmpty() && (!text.equals(RoomLibrary.DOOR_TEXT) || !isValidDoorSize(size))) {
+                send(sender, "&c크기는 문에만 쓸 수 있고, 5x4처럼 너비(홀수)x높이로 적습니다.");
+                return;
+            }
+            items.add(signItem(text, size));
+        }
+        Map<Integer, ItemStack> left = player.getInventory().addItem(items.toArray(new ItemStack[0]));
+        left.values().forEach(item -> player.getWorld().dropItem(player.getLocation(), item));
+        send(sender, "표지판을 지급했습니다." + (left.isEmpty() ? "" : " &7인벤토리가 가득 차서 일부는 발밑에 떨어졌습니다."));
+    }
+
+    private static boolean isValidDoorSize(String size) {
+        String[] part = size.split("x");
+        Integer width = part.length == 2 ? parseInt(part[0]) : null;
+        Integer height = part.length == 2 ? parseInt(part[1]) : null;
+        return width != null && height != null && width > 0 && height > 0 && width % 2 == 1;
+    }
+
+    private static ItemStack signItem(String first, String second) {
+        ItemStack item = new ItemStack(Material.OAK_SIGN, SIGN_STACK);
+        BlockStateMeta meta = (BlockStateMeta) item.getItemMeta();
+        Sign sign = (Sign) meta.getBlockState();
+        SignSide front = sign.getSide(Side.FRONT);
+        front.line(0, Component.text(first));
+        front.line(1, Component.text(second));
+        meta.setBlockState(sign);
+        meta.displayName(DungeonPlugin.color("&e" + first + (second.isEmpty() ? "" : " " + second)));
+        item.setItemMeta(meta);
+        return item;
+    }
+
     private void floorTheme(CommandSender sender, String[] args) throws IOException {
         FloorDef floor = floor(sender, args);
         if (floor == null) {
@@ -658,7 +717,7 @@ final class DungeonCommand implements TabExecutor {
         if (args.length == 1) {
             options.addAll(List.of("입장", "파티", "지갑"));
             if (admin) {
-                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "층테마", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
+                options.addAll(List.of("방", "표지판", "생성", "삭제", "정보", "층수", "방수", "층테마", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
                         "현황", "배치", "종료", "리로드"));
             }
         } else if (first.equals("파티")) {
@@ -682,6 +741,17 @@ final class DungeonCommand implements TabExecutor {
 
     private void completeAdmin(String[] args, List<String> options) {
         String first = args[0];
+        if (first.equals("표지판")) {
+            if (args.length == 2) {
+                options.add("문");
+                for (RoomTemplate.MarkerType type : RoomTemplate.MarkerType.values()) {
+                    options.add(type.text.substring(1, type.text.length() - 1));
+                }
+            } else if (args.length == 3 && args[1].equals("문")) {
+                options.addAll(List.of("3x3", "5x4"));
+            }
+            return;
+        }
         if (first.equals("방")) {
             if (args.length == 2) {
                 options.addAll(List.of("저장", "삭제", "목록"));

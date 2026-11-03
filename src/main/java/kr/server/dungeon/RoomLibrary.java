@@ -52,7 +52,7 @@ final class RoomLibrary {
     private static final int MAX_ROOM_SIZE = 128;
     private static final int DEFAULT_DOOR_WIDTH = 3;
     private static final int DEFAULT_DOOR_HEIGHT = 3;
-    private static final String DOOR_TEXT = "[문]";
+    static final String DOOR_TEXT = "[문]";
 
     private final DungeonPlugin plugin;
     private final File folder;
