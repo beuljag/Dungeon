@@ -26,6 +26,8 @@ final class DungeonData {
 
     static final class FloorDef {
         int rooms = DEFAULT_ROOMS;
+        /** 이 층에서 쓸 방 테마. null이면 던전 테마를 쓴다. */
+        String theme;
         /** 일반 방과 별도로 붙이는 이벤트 방의 수 */
         int eventRooms;
         /** 이 층에 상점 방이 나올 확률(%) */
@@ -47,6 +49,10 @@ final class DungeonData {
 
         DungeonDef(String name) {
             this.name = name;
+        }
+
+        String themeOf(FloorDef floor) {
+            return floor.theme != null ? floor.theme : theme;
         }
     }
 
@@ -87,6 +93,7 @@ final class DungeonData {
     private static FloorDef readFloor(ConfigurationSection section) {
         FloorDef floor = new FloorDef();
         floor.rooms = section.getInt("rooms", DEFAULT_ROOMS);
+        floor.theme = section.getString("theme");
         floor.eventRooms = section.getInt("event-rooms");
         floor.shopChance = section.getDouble("shop-chance");
         floor.boss = section.getString("boss");
@@ -132,6 +139,7 @@ final class DungeonData {
                 FloorDef floor = def.floors.get(i);
                 String floorPath = path + ".floors." + (i + 1);
                 yaml.set(floorPath + ".rooms", floor.rooms);
+                yaml.set(floorPath + ".theme", floor.theme);
                 yaml.set(floorPath + ".event-rooms", floor.eventRooms);
                 yaml.set(floorPath + ".shop-chance", floor.shopChance);
                 yaml.set(floorPath + ".boss", floor.boss);

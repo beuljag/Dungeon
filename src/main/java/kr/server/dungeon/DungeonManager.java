@@ -145,23 +145,23 @@ final class DungeonManager implements Runnable {
         if (def.floors.isEmpty()) {
             problems.add("층이 없습니다.");
         }
-        if (rooms.byType(RoomType.START, def.theme).isEmpty()) {
-            problems.add("테마 '" + def.theme + "'의 시작 방이 없습니다.");
-        }
-        if (rooms.byType(RoomType.BOSS, def.theme).isEmpty()) {
-            problems.add("테마 '" + def.theme + "'의 보스 방이 없습니다.");
-        }
-        boolean needsNormal = def.floors.stream().anyMatch(floor -> floor.rooms > 0);
-        if (needsNormal && rooms.byType(RoomType.NORMAL, def.theme).isEmpty()) {
-            problems.add("테마 '" + def.theme + "'의 일반 방이 없습니다.");
-        }
         for (int i = 0; i < def.floors.size(); i++) {
             FloorDef floor = def.floors.get(i);
-            if (floor.eventRooms > 0 && rooms.byType(RoomType.EVENT, def.theme).isEmpty()) {
-                problems.add((i + 1) + "층에 이벤트 방을 설정했지만 테마 '" + def.theme + "'의 이벤트 방이 없습니다.");
+            String theme = def.themeOf(floor);
+            if (rooms.byType(RoomType.START, theme).isEmpty()) {
+                problems.add((i + 1) + "층: 테마 '" + theme + "'의 시작 방이 없습니다.");
             }
-            if (floor.shopChance > 0 && rooms.byType(RoomType.SHOP, def.theme).isEmpty()) {
-                problems.add((i + 1) + "층에 상점 방을 설정했지만 테마 '" + def.theme + "'의 상점 방이 없습니다.");
+            if (rooms.byType(RoomType.BOSS, theme).isEmpty()) {
+                problems.add((i + 1) + "층: 테마 '" + theme + "'의 보스 방이 없습니다.");
+            }
+            if (floor.rooms > 0 && rooms.byType(RoomType.NORMAL, theme).isEmpty()) {
+                problems.add((i + 1) + "층: 테마 '" + theme + "'의 일반 방이 없습니다.");
+            }
+            if (floor.eventRooms > 0 && rooms.byType(RoomType.EVENT, theme).isEmpty()) {
+                problems.add((i + 1) + "층: 이벤트 방을 설정했지만 테마 '" + theme + "'의 이벤트 방이 없습니다.");
+            }
+            if (floor.shopChance > 0 && rooms.byType(RoomType.SHOP, theme).isEmpty()) {
+                problems.add((i + 1) + "층: 상점 방을 설정했지만 테마 '" + theme + "'의 상점 방이 없습니다.");
             }
             if (!Mobs.exists(floor.boss)) {
                 problems.add((i + 1) + "층 보스가 없거나 존재하지 않는 몹입니다: " + floor.boss);
@@ -305,9 +305,10 @@ final class DungeonManager implements Runnable {
         int cell = nextCell++;
         Point center = new Point(cell % CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2, FLOOR_BASE_Y,
                 cell / CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2);
-        List<PlacedRoom> layout = LayoutGenerator.generate(rooms.byType(RoomType.START, instance.def.theme),
-                rooms.byType(RoomType.NORMAL, instance.def.theme), rooms.byType(RoomType.BOSS, instance.def.theme),
-                pickSpecialRooms(instance, def), def.rooms, center, random);
+        String theme = instance.def.themeOf(def);
+        List<PlacedRoom> layout = LayoutGenerator.generate(rooms.byType(RoomType.START, theme),
+                rooms.byType(RoomType.NORMAL, theme), rooms.byType(RoomType.BOSS, theme),
+                pickSpecialRooms(theme, def), def.rooms, center, random);
         if (layout == null) {
             plugin.getLogger().warning("던전 '" + instance.def.name + "' " + (index + 1)
                     + "층 배치에 실패했습니다. 문이 둘 이상인 일반 방과 문 크기가 맞는지 확인하세요.");
@@ -335,13 +336,13 @@ final class DungeonManager implements Runnable {
         }, 0L, 1L);
     }
 
-    private List<RoomTemplate> pickSpecialRooms(DungeonInstance instance, FloorDef def) {
+    private List<RoomTemplate> pickSpecialRooms(String theme, FloorDef def) {
         List<RoomTemplate> specials = new ArrayList<>();
-        List<RoomTemplate> eventRooms = rooms.byType(RoomType.EVENT, instance.def.theme);
+        List<RoomTemplate> eventRooms = rooms.byType(RoomType.EVENT, theme);
         for (int i = 0; i < def.eventRooms && !eventRooms.isEmpty(); i++) {
             specials.add(eventRooms.get(random.nextInt(eventRooms.size())));
         }
-        List<RoomTemplate> shopRooms = rooms.byType(RoomType.SHOP, instance.def.theme);
+        List<RoomTemplate> shopRooms = rooms.byType(RoomType.SHOP, theme);
         if (!shopRooms.isEmpty() && random.nextDouble() * 100 < def.shopChance) {
             specials.add(shopRooms.get(random.nextInt(shopRooms.size())));
         }

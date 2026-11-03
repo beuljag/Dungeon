@@ -79,6 +79,7 @@ final class DungeonCommand implements TabExecutor {
                     "방 삭제 <이름> | 방 목록",
                     "생성 <던전> [테마] | 삭제 <던전> | 정보 <던전>",
                     "층수 <던전> <층수> | 방수 <던전> <층> <일반 방 수>",
+                    "층테마 <던전> <층> <테마|해제> &7- 그 층에서 쓸 방 묶음",
                     "보스 <던전> <층> <몹>",
                     "몹 <던전> <층> 추가 <몹> [가중치] | 몹 <던전> <층> 제거 <몹>",
                     "보상 <던전> <층> 추가 <확률%> &7- 손에 든 아이템",
@@ -250,6 +251,7 @@ final class DungeonCommand implements TabExecutor {
             case "보스" -> boss(sender, args);
             case "몹" -> mob(sender, args);
             case "보상" -> reward(sender, args);
+            case "층테마" -> floorTheme(sender, args);
             case "입장권" -> ticket(sender, args);
             case "이벤트방" -> eventRooms(sender, args);
             case "상점방" -> shopChance(sender, args);
@@ -346,7 +348,8 @@ final class DungeonCommand implements TabExecutor {
                 + (def.ticket != null ? def.ticket.getType() + " x" + def.ticket.getAmount() : "없음"));
         for (int i = 0; i < def.floors.size(); i++) {
             FloorDef floor = def.floors.get(i);
-            sender.sendMessage(DungeonPlugin.color("&e" + (i + 1) + "층 &7일반 방 " + floor.rooms + " / 보스 " + floor.boss
+            sender.sendMessage(DungeonPlugin.color("&e" + (i + 1) + "층 &7테마 " + def.themeOf(floor)
+                    + " / 일반 방 " + floor.rooms + " / 보스 " + floor.boss
                     + " / 몹 " + floor.mobs + " / 보상 " + floor.rewards.size() + "종"
                     + " / 이벤트 방 " + floor.eventRooms + " / 상점 방 " + floor.shopChance + "%"
                     + " / 보물 " + floor.treasure.size() + "종 / 상품 " + floor.shop.size() + "종"));
@@ -463,6 +466,21 @@ final class DungeonCommand implements TabExecutor {
         } else {
             send(sender, "&c사용법: /던전 보상 <던전> <층> 추가 <확률%> | 비우기");
         }
+    }
+
+    private void floorTheme(CommandSender sender, String[] args) throws IOException {
+        FloorDef floor = floor(sender, args);
+        if (floor == null) {
+            return;
+        }
+        if (args.length < 4) {
+            send(sender, "&c사용법: /던전 층테마 <던전> <층> <테마|해제>");
+            return;
+        }
+        floor.theme = args[3].equals("해제") ? null : args[3];
+        data.save();
+        send(sender, floor.theme != null ? "이 층의 테마를 &e" + floor.theme + "&f(으)로 설정했습니다."
+                : "층 테마를 해제했습니다. 던전 테마를 사용합니다.");
     }
 
     private void ticket(CommandSender sender, String[] args) throws IOException {
@@ -640,7 +658,7 @@ final class DungeonCommand implements TabExecutor {
         if (args.length == 1) {
             options.addAll(List.of("입장", "파티", "지갑"));
             if (admin) {
-                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
+                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "층테마", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
                         "현황", "배치", "종료", "리로드"));
             }
         } else if (first.equals("파티")) {
@@ -674,11 +692,14 @@ final class DungeonCommand implements TabExecutor {
             }
             return;
         }
-        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점").contains(first)) {
+        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "층테마", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             options.addAll(data.dungeons().keySet());
         } else if (args.length == 3 && first.equals("입장권")) {
             options.addAll(List.of("설정", "해제"));
-        } else if (args.length == 3 && List.of("방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
+        } else if (args.length == 4 && first.equals("층테마")) {
+            options.add("해제");
+            rooms.rooms().values().stream().map(RoomTemplate::theme).distinct().forEach(options::add);
+        } else if (args.length == 3 && List.of("방수", "층테마", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             DungeonDef def = data.dungeons().get(args[1]);
             for (int i = 1; def != null && i <= def.floors.size(); i++) {
                 options.add(String.valueOf(i));
