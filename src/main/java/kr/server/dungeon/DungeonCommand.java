@@ -3,6 +3,7 @@ package kr.server.dungeon;
 import kr.server.dungeon.DungeonData.DungeonDef;
 import kr.server.dungeon.DungeonData.FloorDef;
 import kr.server.dungeon.DungeonData.Reward;
+import kr.server.dungeon.DungeonData.ShopItem;
 import kr.server.dungeon.RoomTemplate.RoomType;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -49,6 +50,7 @@ final class DungeonCommand implements TabExecutor {
             switch (args[0]) {
                 case "입장", "enter" -> enter(sender, args);
                 case "파티", "party" -> party(sender, args);
+                case "지갑", "wallet" -> wallet(sender);
                 default -> {
                     if (!sender.hasPermission(ADMIN)) {
                         help(sender, label);
@@ -68,7 +70,8 @@ final class DungeonCommand implements TabExecutor {
         send(sender, "명령어 목록");
         List<String> lines = new ArrayList<>(List.of(
                 "입장 <던전> &7- 던전 입장 (파티가 있으면 파티장만)",
-                "파티 초대 <플레이어> | 수락 | 거절 | 나가기 | 추방 <플레이어> | 목록"));
+                "파티 초대 <플레이어> | 수락 | 거절 | 나가기 | 추방 <플레이어> | 목록",
+                "지갑 &7- 던전 안에서 보유 재화 확인"));
         if (sender.hasPermission(ADMIN)) {
             lines.addAll(List.of(
                     "입장 <던전> <플레이어> &7- 대상 입장 (NPC, 콘솔용)",
@@ -80,11 +83,23 @@ final class DungeonCommand implements TabExecutor {
                     "몹 <던전> <층> 추가 <몹> [가중치] | 몹 <던전> <층> 제거 <몹>",
                     "보상 <던전> <층> 추가 <확률%> &7- 손에 든 아이템",
                     "보상 <던전> <층> 비우기",
+                    "이벤트방 <던전> <층> <수> | 상점방 <던전> <층> <확률%>",
+                    "보물 <던전> <층> 추가 <확률%> | 비우기 &7- 손에 든 아이템",
+                    "상점 <던전> <층> 추가 <가격> | 비우기 | 목록 &7- 손에 든 아이템",
                     "현황 | 배치 <번호> | 종료 <번호> | 리로드"));
         }
         for (String line : lines) {
             sender.sendMessage(DungeonPlugin.color("&e/" + label + " " + line));
         }
+    }
+
+    private void wallet(CommandSender sender) {
+        DungeonInstance instance = sender instanceof Player player ? manager.instanceOf(player.getUniqueId()) : null;
+        if (instance == null) {
+            send(sender, "&c던전 안에서만 쓸 수 있습니다.");
+            return;
+        }
+        manager.events().showWallet((Player) sender, instance);
     }
 
     // ---- 입장 ----
@@ -234,6 +249,10 @@ final class DungeonCommand implements TabExecutor {
             case "보스" -> boss(sender, args);
             case "몹" -> mob(sender, args);
             case "보상" -> reward(sender, args);
+            case "이벤트방" -> eventRooms(sender, args);
+            case "상점방" -> shopChance(sender, args);
+            case "보물" -> treasure(sender, args);
+            case "상점" -> shop(sender, args);
             case "현황" -> status(sender);
             case "배치" -> layout(sender, args);
             case "종료" -> stop(sender, args);
@@ -325,7 +344,9 @@ final class DungeonCommand implements TabExecutor {
         for (int i = 0; i < def.floors.size(); i++) {
             FloorDef floor = def.floors.get(i);
             sender.sendMessage(DungeonPlugin.color("&e" + (i + 1) + "층 &7일반 방 " + floor.rooms + " / 보스 " + floor.boss
-                    + " / 몹 " + floor.mobs + " / 보상 " + floor.rewards.size() + "종"));
+                    + " / 몹 " + floor.mobs + " / 보상 " + floor.rewards.size() + "종"
+                    + " / 이벤트 방 " + floor.eventRooms + " / 상점 방 " + floor.shopChance + "%"
+                    + " / 보물 " + floor.treasure.size() + "종 / 상품 " + floor.shop.size() + "종"));
         }
         List<String> problems = manager.validate(def);
         problems.forEach(problem -> sender.sendMessage(DungeonPlugin.color("&c- " + problem)));
@@ -441,6 +462,92 @@ final class DungeonCommand implements TabExecutor {
         }
     }
 
+    private void eventRooms(CommandSender sender, String[] args) throws IOException {
+        FloorDef floor = floor(sender, args);
+        Integer count = args.length >= 4 ? parseInt(args[3]) : null;
+        if (floor == null) {
+            return;
+        }
+        if (count == null || count < 0) {
+            send(sender, "&c사용법: /던전 이벤트방 <던전> <층> <수>");
+            return;
+        }
+        floor.eventRooms = count;
+        data.save();
+        send(sender, "이벤트 방 수를 " + count + "개로 설정했습니다.");
+    }
+
+    private void shopChance(CommandSender sender, String[] args) throws IOException {
+        FloorDef floor = floor(sender, args);
+        Double chance = args.length >= 4 ? parseDouble(args[3]) : null;
+        if (floor == null) {
+            return;
+        }
+        if (chance == null || chance < 0 || chance > 100) {
+            send(sender, "&c사용법: /던전 상점방 <던전> <층> <0~100>");
+            return;
+        }
+        floor.shopChance = chance;
+        data.save();
+        send(sender, "상점 방이 나올 확률을 " + chance + "%로 설정했습니다.");
+    }
+
+    private void treasure(CommandSender sender, String[] args) throws IOException {
+        FloorDef floor = floor(sender, args);
+        if (floor == null) {
+            return;
+        }
+        String action = args.length >= 4 ? args[3] : "";
+        if (action.equals("비우기")) {
+            floor.treasure.clear();
+            data.save();
+            send(sender, "보물 아이템을 비웠습니다.");
+        } else if (action.equals("추가") && sender instanceof Player player) {
+            ItemStack item = player.getInventory().getItemInMainHand();
+            Double chance = args.length >= 5 ? parseDouble(args[4]) : null;
+            if (item.getType() == Material.AIR || chance == null || chance <= 0 || chance > 100) {
+                send(sender, "&c아이템을 손에 들고 확률을 적으세요: /던전 보물 <던전> <층> 추가 <1~100>");
+                return;
+            }
+            floor.treasure.add(new Reward(chance, item.clone()));
+            data.save();
+            send(sender, "보물 추가: &e" + item.getType() + " x" + item.getAmount() + " &7확률 " + chance + "%");
+        } else {
+            send(sender, "&c사용법: /던전 보물 <던전> <층> 추가 <확률%> | 비우기");
+        }
+    }
+
+    private void shop(CommandSender sender, String[] args) throws IOException {
+        FloorDef floor = floor(sender, args);
+        if (floor == null) {
+            return;
+        }
+        String action = args.length >= 4 ? args[3] : "";
+        if (action.equals("비우기")) {
+            floor.shop.clear();
+            data.save();
+            send(sender, "상품을 비웠습니다.");
+        } else if (action.equals("목록")) {
+            send(sender, "상품 " + floor.shop.size() + "종");
+            for (ShopItem item : floor.shop) {
+                sender.sendMessage(DungeonPlugin.color("&e" + item.item().getType() + " x" + item.item().getAmount()
+                        + " &7가격 " + item.price()));
+            }
+        } else if (action.equals("추가") && sender instanceof Player player) {
+            ItemStack item = player.getInventory().getItemInMainHand();
+            Integer price = args.length >= 5 ? parseInt(args[4]) : null;
+            if (item.getType() == Material.AIR || price == null || price < 0) {
+                send(sender, "&c아이템을 손에 들고 가격을 적으세요: /던전 상점 <던전> <층> 추가 <가격>");
+                return;
+            }
+            floor.shop.add(new ShopItem(price, item.clone()));
+            data.save();
+            send(sender, "상품 추가: &e" + item.getType() + " x" + item.getAmount() + " &7가격 " + price);
+        } else {
+            send(sender, "&c사용법: /던전 상점 <던전> <층> 추가 <가격> | 비우기 | 목록");
+        }
+    }
+
     private void status(CommandSender sender) {
         send(sender, "진행 중인 던전 " + manager.instances().size() + "개");
         manager.instances().forEach((id, instance) -> sender.sendMessage(DungeonPlugin.color(
@@ -504,9 +611,10 @@ final class DungeonCommand implements TabExecutor {
         List<String> options = new ArrayList<>();
         String first = args[0];
         if (args.length == 1) {
-            options.addAll(List.of("입장", "파티"));
+            options.addAll(List.of("입장", "파티", "지갑"));
             if (admin) {
-                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "보스", "몹", "보상", "현황", "배치", "종료", "리로드"));
+                options.addAll(List.of("방", "생성", "삭제", "정보", "층수", "방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점",
+                        "현황", "배치", "종료", "리로드"));
             }
         } else if (first.equals("파티")) {
             if (args.length == 2) {
@@ -535,13 +643,13 @@ final class DungeonCommand implements TabExecutor {
             } else if (args.length == 3 && args[1].equals("삭제")) {
                 options.addAll(rooms.rooms().keySet());
             } else if (args.length == 4 && args[1].equals("저장")) {
-                options.addAll(List.of("시작", "일반", "보스"));
+                options.addAll(List.of("시작", "일반", "보스", "이벤트", "상점"));
             }
             return;
         }
-        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "보스", "몹", "보상").contains(first)) {
+        if (args.length == 2 && List.of("삭제", "정보", "층수", "방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             options.addAll(data.dungeons().keySet());
-        } else if (args.length == 3 && List.of("방수", "보스", "몹", "보상").contains(first)) {
+        } else if (args.length == 3 && List.of("방수", "보스", "몹", "보상", "이벤트방", "상점방", "보물", "상점").contains(first)) {
             DungeonDef def = data.dungeons().get(args[1]);
             for (int i = 1; def != null && i <= def.floors.size(); i++) {
                 options.add(String.valueOf(i));
@@ -550,8 +658,10 @@ final class DungeonCommand implements TabExecutor {
             options.addAll(Mobs.names());
         } else if (args.length == 4 && first.equals("몹")) {
             options.addAll(List.of("추가", "제거"));
-        } else if (args.length == 4 && first.equals("보상")) {
+        } else if (args.length == 4 && (first.equals("보상") || first.equals("보물"))) {
             options.addAll(List.of("추가", "비우기"));
+        } else if (args.length == 4 && first.equals("상점")) {
+            options.addAll(List.of("추가", "비우기", "목록"));
         } else if (args.length == 5 && first.equals("몹")) {
             options.addAll(Mobs.names());
         } else if (args.length == 2 && (first.equals("종료") || first.equals("배치"))) {

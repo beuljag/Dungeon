@@ -4,6 +4,10 @@ import kr.server.dungeon.RoomTemplate.Dir;
 import kr.server.dungeon.RoomTemplate.Door;
 import kr.server.dungeon.RoomTemplate.Point;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
 /** 층에 배치된 방. origin은 회전한 뒤의 최소 모서리(월드 좌표)다. */
 final class PlacedRoom {
 
@@ -14,6 +18,9 @@ final class PlacedRoom {
     final int depth;
     final boolean[] doorUsed;
     boolean activated;
+    /** 진행 중인 웨이브 번호(1부터). 웨이브가 진행 중이 아니면 0이다. */
+    int wave;
+    final Set<UUID> waveMobs = new HashSet<>();
 
     PlacedRoom(RoomTemplate template, int rotation, Point origin, int depth) {
         this.template = template;
@@ -59,6 +66,13 @@ final class PlacedRoom {
         return x >= origin.x() && x < origin.x() + sizeX()
                 && y >= origin.y() && y < origin.y() + template.sizeY()
                 && z >= origin.z() && z < origin.z() + sizeZ();
+    }
+
+    /** 벽에서 inset칸 이상 안쪽에 있는지 본다. 문이 닫힐 때 문간에 끼지 않게 하는 용도다. */
+    boolean containsInner(double x, double y, double z, int inset) {
+        return x >= origin.x() + inset && x < origin.x() + sizeX() - inset
+                && y >= origin.y() && y < origin.y() + template.sizeY()
+                && z >= origin.z() + inset && z < origin.z() + sizeZ() - inset;
     }
 
     boolean overlaps(RoomTemplate other, int otherRotation, Point otherOrigin) {

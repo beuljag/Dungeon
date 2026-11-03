@@ -67,6 +67,7 @@ final class DungeonManager implements Runnable {
     private final SessionStore sessions;
     private final PartyManager parties;
     private final Random random = new Random();
+    private final EventManager events;
 
     private final Map<Integer, DungeonInstance> instances = new HashMap<>();
     private final Map<UUID, DungeonInstance> byPlayer = new HashMap<>();
@@ -83,6 +84,11 @@ final class DungeonManager implements Runnable {
         this.rooms = rooms;
         this.sessions = sessions;
         this.parties = parties;
+        this.events = new EventManager(plugin, this);
+    }
+
+    EventManager events() {
+        return events;
     }
 
     /** 지난 실행의 던전 월드를 지우고 빈 월드를 새로 만든다. */
@@ -151,6 +157,12 @@ final class DungeonManager implements Runnable {
         }
         for (int i = 0; i < def.floors.size(); i++) {
             FloorDef floor = def.floors.get(i);
+            if (floor.eventRooms > 0 && rooms.byType(RoomType.EVENT, def.theme).isEmpty()) {
+                problems.add((i + 1) + "층에 이벤트 방을 설정했지만 테마 '" + def.theme + "'의 이벤트 방이 없습니다.");
+            }
+            if (floor.shopChance > 0 && rooms.byType(RoomType.SHOP, def.theme).isEmpty()) {
+                problems.add((i + 1) + "층에 상점 방을 설정했지만 테마 '" + def.theme + "'의 상점 방이 없습니다.");
+            }
             if (!Mobs.exists(floor.boss)) {
                 problems.add((i + 1) + "층 보스가 없거나 존재하지 않는 몹입니다: " + floor.boss);
             }
@@ -255,7 +267,7 @@ final class DungeonManager implements Runnable {
                 cell / CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2);
         List<PlacedRoom> layout = LayoutGenerator.generate(rooms.byType(RoomType.START, instance.def.theme),
                 rooms.byType(RoomType.NORMAL, instance.def.theme), rooms.byType(RoomType.BOSS, instance.def.theme),
-                def.rooms, center, random);
+                pickSpecialRooms(instance, def), def.rooms, center, random);
         if (layout == null) {
             plugin.getLogger().warning("던전 '" + instance.def.name + "' " + (index + 1)
                     + "층 배치에 실패했습니다. 문이 둘 이상인 일반 방과 문 크기가 맞는지 확인하세요.");
@@ -283,29 +295,52 @@ final class DungeonManager implements Runnable {
         }, 0L, 1L);
     }
 
-    /** 표지판을 지우고 연결되지 않은 문을 막는다. */
+    private List<RoomTemplate> pickSpecialRooms(DungeonInstance instance, FloorDef def) {
+        List<RoomTemplate> specials = new ArrayList<>();
+        List<RoomTemplate> eventRooms = rooms.byType(RoomType.EVENT, instance.def.theme);
+        for (int i = 0; i < def.eventRooms && !eventRooms.isEmpty(); i++) {
+            specials.add(eventRooms.get(random.nextInt(eventRooms.size())));
+        }
+        List<RoomTemplate> shopRooms = rooms.byType(RoomType.SHOP, instance.def.theme);
+        if (!shopRooms.isEmpty() && random.nextDouble() * 100 < def.shopChance) {
+            specials.add(shopRooms.get(random.nextInt(shopRooms.size())));
+        }
+        return specials;
+    }
+
+    /** 표지판을 지우고, 이벤트 블록을 놓고, 연결되지 않은 문을 막는다. */
     private void finishRoom(PlacedRoom room) {
-        for (List<Point> points : room.template.markers().values()) {
-            for (Point point : points) {
-                setBlock(room.toWorld(point), Material.AIR);
+        for (Map.Entry<MarkerType, List<Point>> entry : room.template.markers().entrySet()) {
+            Material block = switch (entry.getKey()) {
+                case TREASURE -> Material.CHEST;
+                case ALTAR -> material("altar.block", Material.ENCHANTING_TABLE);
+                case GAMBLE -> material("gamble.block", Material.LODESTONE);
+                default -> Material.AIR;
+            };
+            for (Point point : entry.getValue()) {
+                setBlock(room.toWorld(point), block);
             }
         }
         Material seal = material("door-seal-block", Material.STONE_BRICKS);
         List<Door> doors = room.template.doors();
         for (int i = 0; i < doors.size(); i++) {
             Door door = doors.get(i);
-            Point center = room.toWorld(door.pos());
-            setBlock(center, Material.AIR);
-            if (room.doorUsed[i]) {
-                continue;
+            setBlock(room.toWorld(door.pos()), Material.AIR);
+            if (!room.doorUsed[i]) {
+                fillDoor(room, door, seal);
             }
-            Dir dir = room.doorDir(door);
-            int half = (door.width() - 1) / 2;
-            for (int side = -half; side <= half; side++) {
-                for (int up = 0; up < door.height(); up++) {
-                    setBlock(new Point(center.x() + side * Math.abs(dir.dz), center.y() + up,
-                            center.z() + side * Math.abs(dir.dx)), seal);
-                }
+        }
+    }
+
+    /** 문의 바깥 면 전체를 한 블록으로 채운다. */
+    void fillDoor(PlacedRoom room, Door door, Material material) {
+        Point center = room.toWorld(door.pos());
+        Dir dir = room.doorDir(door);
+        int half = (door.width() - 1) / 2;
+        for (int side = -half; side <= half; side++) {
+            for (int up = 0; up < door.height(); up++) {
+                setBlock(new Point(center.x() + side * Math.abs(dir.dz), center.y() + up,
+                        center.z() + side * Math.abs(dir.dx)), material);
             }
         }
     }
@@ -376,6 +411,7 @@ final class DungeonManager implements Runnable {
                 }
             }
         }
+        events.tickWaves(instance, floor);
         keepBossAlive(floor);
         if (floor.bossDead) {
             showGateParticles(floor, !instance.isLastFloor());
@@ -391,10 +427,19 @@ final class DungeonManager implements Runnable {
             if (room.activated || !room.contains(at.getX(), at.getY(), at.getZ())) {
                 continue;
             }
+            if (!room.template.marker(MarkerType.WAVE).isEmpty()) {
+                // 웨이브 방의 [몹]은 웨이브마다 쓰므로 처음 들어올 때 소환하지 않는다.
+                if (events.shouldStartWave(room, at)) {
+                    room.activated = true;
+                    events.startWave(instance, floor, room);
+                }
+                continue;
+            }
             room.activated = true;
             for (Point point : room.template.marker(MarkerType.SPAWN)) {
                 spawnFloorMob(floor, room.toWorld(point));
             }
+            events.spawnShopkeeper(floor, room, world);
             if (room.template.type() == RoomType.BOSS) {
                 Point spot = room.toWorld(room.template.marker(MarkerType.BOSS).getFirst());
                 floor.bossSpot = new Location(world, spot.x() + 0.5, spot.y(), spot.z() + 0.5);
@@ -404,21 +449,26 @@ final class DungeonManager implements Runnable {
         }
     }
 
-    private void spawnFloorMob(Floor floor, Point point) {
+    /** 층의 몹 목록에서 하나를 골라 소환한다. 목록이 비었거나 실패하면 null이다. */
+    Entity spawnFloorMob(Floor floor, Point point) {
         if (floor.def.mobs.isEmpty()) {
-            return;
+            return null;
         }
         int total = floor.def.mobs.values().stream().mapToInt(Integer::intValue).sum();
         int roll = ThreadLocalRandom.current().nextInt(total);
         for (Map.Entry<String, Integer> entry : floor.def.mobs.entrySet()) {
             roll -= entry.getValue();
             if (roll < 0) {
-                if (Mobs.spawn(entry.getKey(), new Location(world, point.x() + 0.5, point.y(), point.z() + 0.5)) == null) {
+                Entity mob = Mobs.spawn(entry.getKey(), new Location(world, point.x() + 0.5, point.y(), point.z() + 0.5));
+                if (mob == null) {
                     plugin.getLogger().warning("몹을 소환하지 못했습니다: " + entry.getKey());
+                    return null;
                 }
-                return;
+                floor.coinMobs.add(mob.getUniqueId());
+                return mob;
             }
         }
+        return null;
     }
 
     private void placeBossRoomMarkers(Floor floor, PlacedRoom room) {
@@ -464,6 +514,7 @@ final class DungeonManager implements Runnable {
                 onBossDead(instance, floor);
                 return;
             }
+            events.onMobDeath(instance, floor, entity.getUniqueId());
         }
     }
 
@@ -475,6 +526,7 @@ final class DungeonManager implements Runnable {
             }
         });
         floor.chest.getBlock().setType(Material.CHEST);
+        events.grantCoins(instance, floor, "boss");
 
         placeGate(floor.exitGate, material("exit-gate-block", Material.GOLD_BLOCK), "&e나가기");
         if (instance.isLastFloor()) {
@@ -576,7 +628,7 @@ final class DungeonManager implements Runnable {
         }
     }
 
-    private void broadcast(DungeonInstance instance, String message) {
+    void broadcast(DungeonInstance instance, String message) {
         forOnline(instance, player -> player.sendMessage(DungeonPlugin.color("&6[던전] &f" + message)));
     }
 
@@ -629,6 +681,7 @@ final class DungeonManager implements Runnable {
         }
         Location target = session.returnTo != null && session.returnTo.getWorld() != null
                 ? session.returnTo : Bukkit.getWorlds().getFirst().getSpawnLocation();
+        events.removeDungeonOnly(player);
         player.setGameMode(session.gameMode);
         move(player, target);
         sessions.remove(id);
@@ -776,6 +829,16 @@ final class DungeonManager implements Runnable {
 
     // ---- 보상 ----
 
+    /** 우클릭을 플러그인이 처리하는 블록인지 본다. 보조 손 이벤트가 바닐라 동작을 일으키지 않게 막을 때 쓴다. */
+    boolean isHandledBlock(Player player, Block block) {
+        DungeonInstance instance = byPlayer.get(player.getUniqueId());
+        if (instance == null) {
+            return false;
+        }
+        Floor floor = instance.floor();
+        return events.isSpot(floor, block) || (floor.chest != null && floor.chest.getBlock().equals(block));
+    }
+
     /** 보상 상자 칸이면 처리하고 true를 돌려준다. */
     boolean openRewardChest(Player player, Block block) {
         DungeonInstance instance = byPlayer.get(player.getUniqueId());
@@ -784,7 +847,7 @@ final class DungeonManager implements Runnable {
         }
         Floor floor = instance.floor();
         if (floor.chest == null || !floor.bossDead || !floor.chest.getBlock().equals(block)) {
-            return false;
+            return events.useSpot(instance, floor, player, block);
         }
         if (!floor.rewardable.contains(player.getUniqueId())) {
             player.sendMessage(DungeonPlugin.color("&6[던전] &7보스가 쓰러질 때 살아 있던 사람만 보상을 받습니다."));

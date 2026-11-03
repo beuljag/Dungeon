@@ -19,15 +19,22 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.hanging.HangingBreakEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
 import java.util.Locale;
@@ -95,9 +102,67 @@ final class DungeonListener implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null
-                && event.getClickedBlock().getWorld().equals(manager.world())
-                && manager.openRewardChest(event.getPlayer(), event.getClickedBlock())) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getClickedBlock() == null
+                || !event.getClickedBlock().getWorld().equals(manager.world())) {
+            return;
+        }
+        // 우클릭 한 번에 양손 이벤트가 따로 올 수 있으므로 주 손일 때만 처리한다.
+        boolean handled = event.getHand() == EquipmentSlot.HAND
+                ? manager.openRewardChest(event.getPlayer(), event.getClickedBlock())
+                : manager.isHandledBlock(event.getPlayer(), event.getClickedBlock());
+        if (handled) {
+            event.setCancelled(true);
+        }
+    }
+
+    // ---- 상점 ----
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInteractEntity(PlayerInteractEntityEvent event) {
+        Player player = event.getPlayer();
+        DungeonInstance instance = manager.instanceOf(player.getUniqueId());
+        if (instance == null) {
+            return;
+        }
+        DungeonInstance.Floor floor = instance.floor();
+        if (event.getHand() != EquipmentSlot.HAND) {
+            event.setCancelled(floor.shopkeepers.containsKey(event.getRightClicked().getUniqueId()));
+        } else if (manager.events().openShop(instance, floor, player, event.getRightClicked())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        Inventory top = event.getView().getTopInventory();
+        if (top.getHolder(false) instanceof DungeonInstance.ShopHolder shop) {
+            event.setCancelled(true);
+            if (event.getClickedInventory() == top) {
+                manager.events().buy(player, shop, event.getSlot());
+            }
+            return;
+        }
+        // 구매한 아이템이 다른 저장 공간(셜커 상자 등)을 거쳐 밖으로 나가지 못하게 한다.
+        if (top.getType() != InventoryType.CRAFTING && top.getType() != InventoryType.CREATIVE) {
+            EventManager events = manager.events();
+            ItemStack hotbar = event.getHotbarButton() >= 0 ? player.getInventory().getItem(event.getHotbarButton()) : null;
+            if (events.isDungeonOnly(event.getCursor()) || events.isDungeonOnly(event.getCurrentItem())
+                    || events.isDungeonOnly(hotbar)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        Inventory top = event.getView().getTopInventory();
+        if (top.getHolder(false) instanceof DungeonInstance.ShopHolder) {
+            event.setCancelled(true);
+        } else if (top.getType() != InventoryType.CRAFTING && top.getType() != InventoryType.CREATIVE
+                && manager.events().isDungeonOnly(event.getOldCursor())) {
             event.setCancelled(true);
         }
     }

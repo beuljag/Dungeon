@@ -8,7 +8,7 @@ record RoomTemplate(String name, RoomType type, String theme, int sizeX, int siz
                     List<Door> doors, Map<MarkerType, List<Point>> markers) {
 
     enum RoomType {
-        START("시작"), NORMAL("일반"), BOSS("보스");
+        START("시작"), NORMAL("일반"), BOSS("보스"), EVENT("이벤트"), SHOP("상점");
 
         final String label;
 
@@ -28,7 +28,8 @@ record RoomTemplate(String name, RoomType type, String theme, int sizeX, int siz
 
     /** 방을 저장할 때 표지판 첫 줄로 찾는 표시. */
     enum MarkerType {
-        PLAYER_START("[시작]"), SPAWN("[몹]"), BOSS("[보스]"), REWARD("[보상]"), NEXT("[다음층]"), EXIT("[나가기]");
+        PLAYER_START("[시작]"), SPAWN("[몹]"), BOSS("[보스]"), REWARD("[보상]"), NEXT("[다음층]"), EXIT("[나가기]"),
+        TREASURE("[보물]"), ALTAR("[제단]"), GAMBLE("[도박]"), WAVE("[웨이브]"), SHOPKEEPER("[상인]");
 
         final String text;
 

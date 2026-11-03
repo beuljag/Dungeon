@@ -22,3 +22,52 @@ allowed-commands:
   - tell
   - w
   - r
+
+# 던전 재화. 던전 안에서만 쓰고, 나가면 사라진다. 살아 있는 파티원이 각자 같은 양을 받는다.
+currency-name: 던전 코인
+coins:
+  mob: 5
+  boss: 50
+  treasure: 30
+  mimic: 60
+  wave-clear: 40
+  # 층이 하나 깊어질 때마다 늘어나는 비율(%). 50이면 2층은 1.5배, 3층은 2배다.
+  floor-bonus-percent: 50
+
+# [보물] 상자. 처음 열 때 이 확률로 미믹이 나온다.
+treasure:
+  mimic-chance: 25
+  mimic-mob: ZOMBIE
+
+# [제단] 플레이어마다 제단 하나당 한 번씩 쓸 수 있다. 효과 형식: 효과이름 레벨 초
+# 같은 줄을 여러 번 적으면 그만큼 자주 나온다.
+altar:
+  block: ENCHANTING_TABLE
+  curse-chance: 20
+  blessings:
+    - REGENERATION 2 20
+    - STRENGTH 1 60
+    - SPEED 1 60
+    - RESISTANCE 1 60
+    - INSTANT_HEALTH 2 1
+  curses:
+    - WEAKNESS 1 30
+    - SLOWNESS 1 30
+    - HUNGER 1 30
+
+# [도박] 누르면 bet만큼 걸고, win-chance 확률로 두 배를 돌려받는다.
+gamble:
+  block: LODESTONE
+  bet: 20
+  win-chance: 45
+  # 플레이어마다 제단 하나당 쓸 수 있는 횟수
+  max-uses: 3
+
+# [웨이브] 방에 들어오면 문이 닫히고, 몹을 모두 잡으면 다음 웨이브가 나온다.
+wave:
+  count: 3
+  door-block: IRON_BARS
+
+# 상점 방 하나가 층의 상품 목록에서 랜덤으로 골라 파는 수 (최대 27)
+shop:
+  slots: 9

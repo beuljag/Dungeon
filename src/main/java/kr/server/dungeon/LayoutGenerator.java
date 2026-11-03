@@ -25,20 +25,25 @@ final class LayoutGenerator {
     private LayoutGenerator() {
     }
 
-    /** 배치에 성공하면 방 목록(첫 번째가 시작 방, 마지막이 보스 방)을, 실패하면 null을 돌려준다. */
+    /**
+     * 배치에 성공하면 방 목록(첫 번째가 시작 방, 마지막이 보스 방)을, 실패하면 null을 돌려준다.
+     * specials(이벤트, 상점 방)는 남은 문에 붙여 막다른 방으로만 쓴다. 보스까지 가는 길에 끼지 않으므로
+     * 웨이브 방의 문이 닫혀도 층이 막히지 않는다. 붙일 자리가 없으면 specials 없이 만든다.
+     */
     static List<PlacedRoom> generate(List<RoomTemplate> starts, List<RoomTemplate> normals, List<RoomTemplate> bosses,
-                                     int normalCount, Point center, Random random) {
+                                     List<RoomTemplate> specials, int normalCount, Point center, Random random) {
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
-            List<PlacedRoom> rooms = tryOnce(starts, normals, bosses, normalCount, center, random);
+            List<PlacedRoom> rooms = tryOnce(starts, normals, bosses, specials, normalCount, center, random);
             if (rooms != null) {
                 return rooms;
             }
         }
-        return null;
+        return specials.isEmpty() ? null : generate(starts, normals, bosses, List.of(), normalCount, center, random);
     }
 
     private static List<PlacedRoom> tryOnce(List<RoomTemplate> starts, List<RoomTemplate> normals,
-                                            List<RoomTemplate> bosses, int normalCount, Point center, Random random) {
+                                            List<RoomTemplate> bosses, List<RoomTemplate> specials,
+                                            int normalCount, Point center, Random random) {
         RoomTemplate start = starts.get(random.nextInt(starts.size()));
         List<PlacedRoom> rooms = new ArrayList<>();
         List<OpenDoor> open = new ArrayList<>();
@@ -48,17 +53,38 @@ final class LayoutGenerator {
 
         for (int placed = 0; placed < normalCount; placed++) {
             Collections.shuffle(open, random);
-            if (!attach(rooms, open, normals, center, random)) {
+            if (!attach(rooms, open, normals, true, center, random)) {
                 return null;
             }
         }
         open.sort(Comparator.comparingInt((OpenDoor door) -> door.room().depth).reversed());
-        return attach(rooms, open, bosses, center, random) ? rooms : null;
+        if (!attach(rooms, open, bosses, true, center, random)) {
+            return null;
+        }
+        PlacedRoom boss = rooms.removeLast();
+        // 보스 방의 남은 문에 이벤트 방이 붙어 보스 방을 지나가게 되지 않도록 뺀다.
+        open.removeIf(door -> door.room() == boss);
+        for (RoomTemplate special : specials) {
+            Collections.shuffle(open, random);
+            if (!attach(rooms, open, List.of(special), false, center, random, boss)) {
+                return null;
+            }
+        }
+        rooms.add(boss);
+        return rooms;
     }
 
-    /** 열린 문 하나에 후보 방 하나를 붙인다. 앞쪽 문부터 시도한다. */
     private static boolean attach(List<PlacedRoom> rooms, List<OpenDoor> open, List<RoomTemplate> candidates,
-                                  Point center, Random random) {
+                                  boolean extendable, Point center, Random random) {
+        return attach(rooms, open, candidates, extendable, center, random, null);
+    }
+
+    /**
+     * 열린 문 하나에 후보 방 하나를 붙인다. 앞쪽 문부터 시도한다.
+     * extendable이 false면 새 방의 문을 열린 문 목록에 넣지 않는다. alsoAvoid는 rooms 밖에서 겹치면 안 되는 방이다.
+     */
+    private static boolean attach(List<PlacedRoom> rooms, List<OpenDoor> open, List<RoomTemplate> candidates,
+                                  boolean extendable, Point center, Random random, PlacedRoom alsoAvoid) {
         for (OpenDoor from : new ArrayList<>(open)) {
             Door fromDoor = from.room().template.doors().get(from.index());
             Dir outward = from.room().doorDir(fromDoor);
@@ -82,7 +108,8 @@ final class LayoutGenerator {
                         Point local = PlacedRoom.rotateLocal(door.pos(), rotation, candidate.sizeX(), candidate.sizeZ());
                         Point origin = new Point(fromPos.x() + outward.dx - local.x(), fromPos.y() - local.y(),
                                 fromPos.z() + outward.dz - local.z());
-                        if (!fits(rooms, candidate, rotation, origin, center)) {
+                        if (!fits(rooms, candidate, rotation, origin, center)
+                                || (alsoAvoid != null && alsoAvoid.overlaps(candidate, rotation, origin))) {
                             continue;
                         }
                         PlacedRoom room = new PlacedRoom(candidate, rotation, origin, from.room().depth + 1);
@@ -90,7 +117,9 @@ final class LayoutGenerator {
                         room.doorUsed[index] = true;
                         rooms.add(room);
                         open.remove(from);
-                        addOpenDoors(room, index, open);
+                        if (extendable) {
+                            addOpenDoors(room, index, open);
+                        }
                         return true;
                     }
                 }

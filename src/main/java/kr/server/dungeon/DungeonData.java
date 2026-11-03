@@ -21,12 +21,21 @@ final class DungeonData {
     record Reward(double chance, ItemStack item) {
     }
 
+    record ShopItem(int price, ItemStack item) {
+    }
+
     static final class FloorDef {
         int rooms = DEFAULT_ROOMS;
+        /** 일반 방과 별도로 붙이는 이벤트 방의 수 */
+        int eventRooms;
+        /** 이 층에 상점 방이 나올 확률(%) */
+        double shopChance;
         String boss;
         /** 몹 이름과 가중치. 스폰 지점마다 가중치에 따라 하나를 고른다. */
         final Map<String, Integer> mobs = new LinkedHashMap<>();
         final List<Reward> rewards = new ArrayList<>();
+        final List<Reward> treasure = new ArrayList<>();
+        final List<ShopItem> shop = new ArrayList<>();
     }
 
     static final class DungeonDef {
@@ -75,6 +84,8 @@ final class DungeonData {
     private static FloorDef readFloor(ConfigurationSection section) {
         FloorDef floor = new FloorDef();
         floor.rooms = section.getInt("rooms", DEFAULT_ROOMS);
+        floor.eventRooms = section.getInt("event-rooms");
+        floor.shopChance = section.getDouble("shop-chance");
         floor.boss = section.getString("boss");
         ConfigurationSection mobs = section.getConfigurationSection("mobs");
         if (mobs != null) {
@@ -82,16 +93,30 @@ final class DungeonData {
                 floor.mobs.put(mob, Math.max(1, mobs.getInt(mob, 1)));
             }
         }
-        ConfigurationSection rewards = section.getConfigurationSection("rewards");
-        if (rewards != null) {
-            for (String key : rewards.getKeys(false)) {
-                ItemStack item = rewards.getItemStack(key + ".item");
+        readRewards(section.getConfigurationSection("rewards"), floor.rewards);
+        readRewards(section.getConfigurationSection("treasure"), floor.treasure);
+        ConfigurationSection shop = section.getConfigurationSection("shop");
+        if (shop != null) {
+            for (String key : shop.getKeys(false)) {
+                ItemStack item = shop.getItemStack(key + ".item");
                 if (item != null) {
-                    floor.rewards.add(new Reward(rewards.getDouble(key + ".chance", 100), item));
+                    floor.shop.add(new ShopItem(Math.max(0, shop.getInt(key + ".price")), item));
                 }
             }
         }
         return floor;
+    }
+
+    private static void readRewards(ConfigurationSection section, List<Reward> into) {
+        if (section == null) {
+            return;
+        }
+        for (String key : section.getKeys(false)) {
+            ItemStack item = section.getItemStack(key + ".item");
+            if (item != null) {
+                into.add(new Reward(section.getDouble(key + ".chance", 100), item));
+            }
+        }
     }
 
     void save() throws IOException {
@@ -103,14 +128,25 @@ final class DungeonData {
                 FloorDef floor = def.floors.get(i);
                 String floorPath = path + ".floors." + (i + 1);
                 yaml.set(floorPath + ".rooms", floor.rooms);
+                yaml.set(floorPath + ".event-rooms", floor.eventRooms);
+                yaml.set(floorPath + ".shop-chance", floor.shopChance);
                 yaml.set(floorPath + ".boss", floor.boss);
                 floor.mobs.forEach((mob, weight) -> yaml.set(floorPath + ".mobs." + mob, weight));
-                for (int r = 0; r < floor.rewards.size(); r++) {
-                    yaml.set(floorPath + ".rewards." + r + ".chance", floor.rewards.get(r).chance());
-                    yaml.set(floorPath + ".rewards." + r + ".item", floor.rewards.get(r).item());
+                writeRewards(yaml, floorPath + ".rewards", floor.rewards);
+                writeRewards(yaml, floorPath + ".treasure", floor.treasure);
+                for (int r = 0; r < floor.shop.size(); r++) {
+                    yaml.set(floorPath + ".shop." + r + ".price", floor.shop.get(r).price());
+                    yaml.set(floorPath + ".shop." + r + ".item", floor.shop.get(r).item());
                 }
             }
         }
         yaml.save(file);
+    }
+
+    private static void writeRewards(YamlConfiguration yaml, String path, List<Reward> rewards) {
+        for (int r = 0; r < rewards.size(); r++) {
+            yaml.set(path + "." + r + ".chance", rewards.get(r).chance());
+            yaml.set(path + "." + r + ".item", rewards.get(r).item());
+        }
     }
 }

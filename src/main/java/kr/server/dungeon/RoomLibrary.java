@@ -253,12 +253,20 @@ final class RoomLibrary {
         List<MarkerType> required = switch (type) {
             case START -> List.of(MarkerType.PLAYER_START);
             case BOSS -> List.of(MarkerType.BOSS, MarkerType.REWARD, MarkerType.NEXT, MarkerType.EXIT);
-            case NORMAL -> List.of();
+            case SHOP -> List.of(MarkerType.SHOPKEEPER);
+            case NORMAL, EVENT -> List.of();
         };
         for (MarkerType marker : required) {
             if (!markers.containsKey(marker)) {
                 problems.add(type.label + " 방에는 " + marker.text + " 표지판이 필요합니다.");
             }
+        }
+        if (type == RoomType.EVENT && !markers.containsKey(MarkerType.TREASURE) && !markers.containsKey(MarkerType.ALTAR)
+                && !markers.containsKey(MarkerType.GAMBLE) && !markers.containsKey(MarkerType.WAVE)) {
+            problems.add("이벤트 방에는 [보물], [제단], [도박], [웨이브] 중 하나 이상이 필요합니다.");
+        }
+        if (markers.containsKey(MarkerType.WAVE) && !markers.containsKey(MarkerType.SPAWN)) {
+            problems.add("[웨이브] 방에는 몹이 나올 [몹] 표지판이 필요합니다.");
         }
     }
 

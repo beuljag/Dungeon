@@ -2,6 +2,9 @@ package kr.server.dungeon;
 
 import kr.server.dungeon.DungeonData.DungeonDef;
 import kr.server.dungeon.DungeonData.FloorDef;
+import kr.server.dungeon.DungeonData.ShopItem;
+import kr.server.dungeon.RoomTemplate.MarkerType;
+import kr.server.dungeon.RoomTemplate.Point;
 import org.bukkit.Location;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -21,6 +24,8 @@ final class DungeonInstance {
     static final class Member {
         final String name;
         boolean spectator;
+        /** 던전 재화. 던전을 나가면 Member와 함께 사라진다. */
+        int coins;
         /** 접속이 끊긴 시각(밀리초). 접속 중이면 -1이다. */
         long offlineSince = -1;
 
@@ -54,6 +59,13 @@ final class DungeonInstance {
         /** 내려가는 시각(밀리초). 카운트다운 중이 아니면 -1이다. */
         long descendAt = -1;
         boolean building;
+        /** 잡으면 재화를 주는 몹 (일반 몹, 웨이브 몹) */
+        final Set<UUID> coinMobs = new HashSet<>();
+        final Set<UUID> mimics = new HashSet<>();
+        /** 상인과 그 상인이 파는 물건 */
+        final Map<UUID, List<ShopItem>> shopkeepers = new HashMap<>();
+        /** 우클릭으로 쓰는 이벤트 블록 (보물 상자, 제단) */
+        final Map<Point, EventSpot> spots = new HashMap<>();
 
         Floor(int index, FloorDef def, List<PlacedRoom> rooms, Location start) {
             this.index = index;
@@ -61,6 +73,11 @@ final class DungeonInstance {
             this.rooms = rooms;
             this.start = start;
             for (PlacedRoom room : rooms) {
+                for (MarkerType type : List.of(MarkerType.TREASURE, MarkerType.ALTAR, MarkerType.GAMBLE)) {
+                    for (Point point : room.template.marker(type)) {
+                        spots.put(room.toWorld(point), new EventSpot(type));
+                    }
+                }
                 minX = Math.min(minX, room.origin.x());
                 minY = Math.min(minY, room.origin.y());
                 minZ = Math.min(minZ, room.origin.z());
@@ -74,6 +91,39 @@ final class DungeonInstance {
             return location.getX() >= minX && location.getX() <= maxX
                     && location.getY() >= minY && location.getY() <= maxY
                     && location.getZ() >= minZ && location.getZ() <= maxZ;
+        }
+    }
+
+    /** 보물 상자나 제단 하나의 상태 */
+    static final class EventSpot {
+        final MarkerType type;
+        /** 보물 상자를 누군가 처음 열었는지 */
+        boolean opened;
+        final Map<UUID, Inventory> treasure = new HashMap<>();
+        /** 플레이어별 사용 횟수 */
+        final Map<UUID, Integer> uses = new HashMap<>();
+
+        EventSpot(MarkerType type) {
+            this.type = type;
+        }
+    }
+
+    /** 상점 창임을 표시하고, 칸 번호로 상품을 찾을 수 있게 한다. */
+    static final class ShopHolder implements InventoryHolder {
+        final List<ShopItem> stock;
+        private Inventory inventory;
+
+        ShopHolder(List<ShopItem> stock) {
+            this.stock = stock;
+        }
+
+        void bind(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
         }
     }
 
