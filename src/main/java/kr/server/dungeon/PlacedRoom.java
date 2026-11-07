@@ -21,6 +21,9 @@ final class PlacedRoom {
     /** 진행 중인 웨이브 번호(1부터). 웨이브가 진행 중이 아니면 0이다. */
     int wave;
     final Set<UUID> waveMobs = new HashSet<>();
+    /** 일반 방의 문 잠금: 이 몹을 모두 잡아야 문이 열린다. */
+    final Set<UUID> lockMobs = new HashSet<>();
+    boolean locked;
 
     PlacedRoom(RoomTemplate template, int rotation, Point origin, int depth) {
         this.template = template;

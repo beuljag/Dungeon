@@ -289,6 +289,61 @@ final class EventManager {
         manager.broadcast(instance, "&a웨이브를 모두 막아냈습니다! 문이 열렸습니다.");
     }
 
+    // ---- 일반 방 잠금 ----
+
+    void lockRoom(DungeonInstance instance, PlacedRoom room) {
+        setUsedDoors(room, material("room-lock.door-block", Material.IRON_BARS));
+        room.locked = true;
+        manager.broadcast(instance, "&c문이 닫혔습니다! 방 안의 몹을 모두 쓰러뜨리세요.");
+    }
+
+    /**
+     * 남은 몹을 다 잡으면 문을 연다. 방 안에 살아 있는 사람이 없으면 몹은 그대로 두고 문을 열어,
+     * 전멸하거나 모두 나가도 층이 막히지 않게 한다. 다시 안쪽으로 들어오면 문을 닫는다.
+     */
+    void tickLocks(DungeonInstance instance, Floor floor) {
+        for (PlacedRoom room : floor.rooms) {
+            if (room.lockMobs.isEmpty()) {
+                continue;
+            }
+            // 사라졌거나 문이 열린 사이 방 밖으로 나간 몹은 잡은 것으로 친다. 밖에 있는 몹은 안에서 잡을 수 없다.
+            room.lockMobs.removeIf(id -> {
+                Entity mob = Bukkit.getEntity(id);
+                if (mob == null || mob.isDead()) {
+                    return true;
+                }
+                Location at = mob.getLocation();
+                return !room.contains(at.getX(), at.getY(), at.getZ());
+            });
+            if (room.lockMobs.isEmpty()) {
+                if (room.locked) {
+                    room.locked = false;
+                    setUsedDoors(room, Material.AIR);
+                    manager.broadcast(instance, "&a방의 몹을 모두 쓰러뜨렸습니다. 문이 열렸습니다.");
+                }
+                continue;
+            }
+            if (room.locked && !someoneInside(instance, room)) {
+                room.locked = false;
+                setUsedDoors(room, Material.AIR);
+                manager.broadcast(instance, "&7방에 아무도 남지 않아 문이 열렸습니다. 남은 몹은 그대로 있습니다.");
+            } else if (!room.locked && someoneDeepInside(instance, room)) {
+                lockRoom(instance, room);
+            }
+        }
+    }
+
+    private boolean someoneDeepInside(DungeonInstance instance, PlacedRoom room) {
+        for (Map.Entry<UUID, Member> entry : instance.members.entrySet()) {
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null && !entry.getValue().spectator && !player.isDead()
+                    && shouldStartWave(room, player.getLocation())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean someoneInside(DungeonInstance instance, PlacedRoom room) {
         for (Map.Entry<UUID, Member> entry : instance.members.entrySet()) {
             Player player = Bukkit.getPlayer(entry.getKey());

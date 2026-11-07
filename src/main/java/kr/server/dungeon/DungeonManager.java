@@ -453,6 +453,7 @@ final class DungeonManager implements Runnable {
             }
         }
         events.tickWaves(instance, floor);
+        events.tickLocks(instance, floor);
         keepBossAlive(floor);
         if (floor.bossDead) {
             showGateParticles(floor, !instance.isLastFloor());
@@ -476,9 +477,21 @@ final class DungeonManager implements Runnable {
                 }
                 continue;
             }
+            boolean lockable = room.template.type() == RoomType.NORMAL
+                    && !room.template.marker(MarkerType.SPAWN).isEmpty()
+                    && plugin.getConfig().getBoolean("room-lock.enabled", true);
+            if (lockable && !events.shouldStartWave(room, at)) {
+                // 문을 닫으므로 문간을 지나 방 안쪽까지 들어온 뒤에 몹을 소환한다.
+                continue;
+            }
             room.activated = true;
+            List<Entity> mobs = new ArrayList<>();
             for (Point point : room.template.marker(MarkerType.SPAWN)) {
-                spawnFloorMobs(instance, floor, room.toWorld(point));
+                mobs.addAll(spawnFloorMobs(instance, floor, room.toWorld(point)));
+            }
+            if (lockable && !mobs.isEmpty()) {
+                mobs.forEach(mob -> room.lockMobs.add(mob.getUniqueId()));
+                events.lockRoom(instance, room);
             }
             events.spawnShopkeeper(floor, room, world);
             if (room.template.type() == RoomType.BOSS) {
