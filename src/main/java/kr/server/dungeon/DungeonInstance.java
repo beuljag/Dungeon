@@ -147,6 +147,8 @@ final class DungeonInstance {
     /** 지나온 층까지 포함한 층 목록. 마지막이 현재 층이다. */
     final List<Floor> floors = new ArrayList<>();
     boolean ended;
+    /** /던전 체험으로 만든 방 하나짜리 시험용 던전. 죽거나 접속이 끊겨도 아이템을 잃지 않는다. */
+    boolean test;
 
     DungeonInstance(int id, DungeonDef def) {
         this.id = id;

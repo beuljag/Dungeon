@@ -302,9 +302,7 @@ final class DungeonManager implements Runnable {
     /** 배치를 정하고 방을 틱마다 하나씩 붙여 넣은 뒤 callback을 부른다. 실패하면 null을 넘긴다. */
     private void buildFloor(DungeonInstance instance, int index, Consumer<Floor> callback) {
         FloorDef def = instance.def.floors.get(index);
-        int cell = nextCell++;
-        Point center = new Point(cell % CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2, FLOOR_BASE_Y,
-                cell / CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2);
+        Point center = nextCellCenter();
         String theme = instance.def.themeOf(def);
         List<PlacedRoom> layout = LayoutGenerator.generate(rooms.byType(RoomType.START, theme),
                 rooms.byType(RoomType.NORMAL, theme), rooms.byType(RoomType.BOSS, theme),
@@ -315,14 +313,23 @@ final class DungeonManager implements Runnable {
             callback.accept(null);
             return;
         }
+        pasteFloor(layout, index, def, callback);
+    }
+
+    private Point nextCellCenter() {
+        int cell = nextCell++;
+        return new Point(cell % CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2, FLOOR_BASE_Y,
+                cell / CELLS_PER_ROW * CELL_SIZE + CELL_SIZE / 2);
+    }
+
+    /** 방을 틱마다 하나씩 붙여 넣고, 끝나면 첫 번째 방을 시작 위치로 삼아 층을 만든다. */
+    private void pasteFloor(List<PlacedRoom> layout, int index, FloorDef def, Consumer<Floor> callback) {
         Deque<PlacedRoom> queue = new ArrayDeque<>(layout);
         Bukkit.getScheduler().runTaskTimer(plugin, task -> {
             PlacedRoom room = queue.poll();
             if (room == null) {
                 task.cancel();
-                Point marker = layout.getFirst().toWorld(layout.getFirst().template.marker(MarkerType.PLAYER_START).getFirst());
-                Location start = new Location(world, marker.x() + 0.5, marker.y(), marker.z() + 0.5);
-                callback.accept(new Floor(index, def, layout, start));
+                callback.accept(new Floor(index, def, layout, startOf(layout.getFirst())));
                 return;
             }
             try {
@@ -334,6 +341,60 @@ final class DungeonManager implements Runnable {
                 callback.accept(null);
             }
         }, 0L, 1L);
+    }
+
+    /** [시작] 표시가 있으면 그곳, 없으면 방 가운데에서 바닥 위 빈 칸을 찾는다. 체험용 방에서 쓴다. */
+    private Location startOf(PlacedRoom room) {
+        List<Point> marker = room.template.marker(MarkerType.PLAYER_START);
+        if (!marker.isEmpty()) {
+            Point point = room.toWorld(marker.getFirst());
+            return new Location(world, point.x() + 0.5, point.y(), point.z() + 0.5);
+        }
+        int x = room.origin.x() + room.sizeX() / 2;
+        int z = room.origin.z() + room.sizeZ() / 2;
+        for (int y = room.origin.y() + 1; y < room.origin.y() + room.template.sizeY() - 1; y++) {
+            if (world.getBlockAt(x, y - 1, z).getType().isSolid() && world.getBlockAt(x, y, z).isPassable()
+                    && world.getBlockAt(x, y + 1, z).isPassable()) {
+                return new Location(world, x + 0.5, y, z + 0.5);
+            }
+        }
+        return new Location(world, x + 0.5, room.origin.y() + 1, z + 0.5);
+    }
+
+    /**
+     * 개발 테스트용: 방 하나만 있는 1층짜리 던전에 혼자 들어간다. 문은 모두 막히고,
+     * 죽거나 접속이 끊겨도 아이템을 잃지 않는다. 시작하지 못하면 이유를, 시작했으면 null을 돌려준다.
+     */
+    String testRoom(Player player, RoomTemplate template, FloorDef floorDef) {
+        UUID id = player.getUniqueId();
+        if (sessions.get(id) != null || pending.contains(id)) {
+            return "이미 던전에 있거나 입장 중입니다.";
+        }
+        if (player.isDead()) {
+            return "죽은 상태로는 입장할 수 없습니다.";
+        }
+        DungeonDef def = new DungeonDef("체험-" + template.name());
+        def.floors.add(floorDef);
+        DungeonInstance instance = new DungeonInstance(nextId++, def);
+        instance.test = true;
+        pending.add(id);
+        List<PlacedRoom> layout = List.of(new PlacedRoom(template, 0, nextCellCenter(), 0));
+        pasteFloor(layout, 0, floorDef, floor -> {
+            pending.remove(id);
+            if (floor == null || !player.isOnline() || player.isDead()) {
+                if (floor != null) {
+                    clearEntities(floor);
+                }
+                player.sendMessage(DungeonPlugin.color("&6[던전] &c방을 만들지 못했습니다. 콘솔을 확인하세요."));
+                return;
+            }
+            instance.floors.add(floor);
+            instances.put(instance.id, instance);
+            join(instance, player);
+            player.sendMessage(DungeonPlugin.color("&6[던전] &e체험 #" + instance.id + ": " + template.name()
+                    + " &7(죽어도 아이템을 잃지 않음, 나가려면 /던전 종료 " + instance.id + ")"));
+        });
+        return null;
     }
 
     private List<RoomTemplate> pickSpecialRooms(String theme, FloorDef def) {
@@ -417,7 +478,7 @@ final class DungeonManager implements Runnable {
                 instance.members.remove(id);
                 byPlayer.remove(id);
                 Session session = sessions.get(id);
-                if (session != null && !member.spectator) {
+                if (session != null && !member.spectator && !instance.test) {
                     session.penalty = true;
                     sessions.save();
                 }
@@ -820,8 +881,12 @@ final class DungeonManager implements Runnable {
         DungeonInstance instance = byPlayer.get(player.getUniqueId());
         Member member = instance.members.get(player.getUniqueId());
         member.spectator = true;
-        stripItems(player);
-        broadcast(instance, "&c" + player.getName() + " 님이 쓰러졌습니다. 관전으로 전환합니다.");
+        if (instance.test) {
+            broadcast(instance, "&c쓰러졌습니다. 체험이라 아이템은 그대로입니다.");
+        } else {
+            stripItems(player);
+            broadcast(instance, "&c" + player.getName() + " 님이 쓰러졌습니다. 관전으로 전환합니다.");
+        }
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (player.isOnline() && player.isDead()) {
                 player.spigot().respawn();

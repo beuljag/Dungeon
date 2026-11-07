@@ -96,6 +96,7 @@ final class DungeonCommand implements TabExecutor {
                     "이벤트방 <던전> <층> <수> | 상점방 <던전> <층> <확률%>",
                     "보물 <던전> <층> 추가 <확률%> | 비우기 &7- 손에 든 아이템",
                     "상점 <던전> <층> 추가 <가격> | 비우기 | 목록 &7- 손에 든 아이템",
+                    "체험 <방> [던전] [층] &7- 방 하나만 시험 (아이템을 잃지 않음)",
                     "현황 | 배치 <번호> | 종료 <번호> | 리로드"));
         }
         for (String line : lines) {
@@ -266,6 +267,7 @@ final class DungeonCommand implements TabExecutor {
             case "상점방" -> shopChance(sender, args);
             case "보물" -> treasure(sender, args);
             case "상점" -> shop(sender, args);
+            case "체험" -> testRoom(sender, args);
             case "현황" -> status(sender);
             case "배치" -> layout(sender, args);
             case "종료" -> stop(sender, args);
@@ -652,6 +654,39 @@ final class DungeonCommand implements TabExecutor {
         }
     }
 
+    /** 방 하나만 시험한다. 던전과 층을 주면 그 층의 몹, 보스, 보상, 상품을 쓰고, 없으면 좀비로 시험한다. */
+    private void testRoom(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            send(sender, "&c게임 안에서만 쓸 수 있습니다.");
+            return;
+        }
+        RoomTemplate room = args.length >= 2 ? rooms.rooms().get(args[1]) : null;
+        if (room == null) {
+            send(sender, "&c사용법: /던전 체험 <방> [던전] [층]  &7(방 이름은 /던전 방 목록)");
+            return;
+        }
+        FloorDef floor;
+        if (args.length >= 3) {
+            DungeonDef def = data.dungeons().get(args[2]);
+            Integer index = args.length >= 4 ? parseInt(args[3]) : Integer.valueOf(1);
+            if (def == null || index == null || index < 1 || index > def.floors.size()) {
+                send(sender, "&c던전 이름과 층 번호를 확인하세요.");
+                return;
+            }
+            floor = def.floors.get(index - 1);
+        } else {
+            floor = new FloorDef();
+            floor.mobs.put("ZOMBIE", 1);
+            floor.boss = "ZOMBIE";
+        }
+        String error = manager.testRoom(player, room, floor);
+        if (error != null) {
+            send(sender, "&c" + error);
+        } else {
+            send(sender, "&7방을 만드는 중입니다...");
+        }
+    }
+
     private void status(CommandSender sender) {
         send(sender, "진행 중인 던전 " + manager.instances().size() + "개");
         manager.instances().forEach((id, instance) -> sender.sendMessage(DungeonPlugin.color(
@@ -718,7 +753,7 @@ final class DungeonCommand implements TabExecutor {
             options.addAll(List.of("입장", "파티", "지갑"));
             if (admin) {
                 options.addAll(List.of("방", "표지판", "생성", "삭제", "정보", "층수", "방수", "층테마", "보스", "몹", "보상", "입장권", "이벤트방", "상점방", "보물", "상점",
-                        "현황", "배치", "종료", "리로드"));
+                        "체험", "현황", "배치", "종료", "리로드"));
             }
         } else if (first.equals("파티")) {
             if (args.length == 2) {
@@ -741,6 +776,19 @@ final class DungeonCommand implements TabExecutor {
 
     private void completeAdmin(String[] args, List<String> options) {
         String first = args[0];
+        if (first.equals("체험")) {
+            if (args.length == 2) {
+                options.addAll(rooms.rooms().keySet());
+            } else if (args.length == 3) {
+                options.addAll(data.dungeons().keySet());
+            } else if (args.length == 4) {
+                DungeonDef def = data.dungeons().get(args[2]);
+                for (int i = 1; def != null && i <= def.floors.size(); i++) {
+                    options.add(String.valueOf(i));
+                }
+            }
+            return;
+        }
         if (first.equals("표지판")) {
             if (args.length == 2) {
                 options.add("문");
